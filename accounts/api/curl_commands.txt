@@ -1,0 +1,214 @@
+================================================================================
+                    FITNESS PLATFORM API - ALL CURL COMMANDS
+================================================================================
+Base URL: http://localhost:8000/api/accounts/
+Replace <access_token> with actual JWT token after login
+================================================================================
+
+========================================
+1. AUTHENTICATION
+========================================
+
+# Login
+curl -X POST http://localhost:8000/api/accounts/login/ -H "Content-Type: application/json" -d "{\"username\": \"admin@example.com\", \"password\": \"password123\"}"
+
+# Refresh Token
+curl -X POST http://localhost:8000/api/accounts/token/refresh/ -H "Content-Type: application/json" -d "{\"refresh\": \"your_refresh_token\"}"
+
+# Get Current User
+curl -X GET http://localhost:8000/api/accounts/me/ -H "Authorization: Bearer <access_token>"
+
+# Logout
+curl -X POST http://localhost:8000/api/accounts/logout/ -H "Authorization: Bearer <access_token>"
+
+========================================
+2. OTP LOGIN
+========================================
+
+# Request OTP
+curl -X POST http://localhost:8000/api/accounts/request-otp/ -H "Content-Type: application/json" -d "{\"email\": \"client@example.com\"}"
+
+# Verify OTP
+curl -X POST http://localhost:8000/api/accounts/verify-otp/ -H "Content-Type: application/json" -d "{\"email\": \"client@example.com\", \"otp\": \"123456\"}"
+
+========================================
+3. ADMIN MANAGEMENT (Admin Only)
+========================================
+
+# Create Admin
+curl -X POST http://localhost:8000/api/accounts/signup/admin/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"email\": \"newadmin@example.com\", \"first_name\": \"New\", \"last_name\": \"Admin\"}"
+
+# List Admins
+curl -X GET "http://localhost:8000/api/accounts/admin/?page=1&page_size=10" -H "Authorization: Bearer <access_token>"
+
+# Get Admin Details
+curl -X GET http://localhost:8000/api/accounts/admin/1/ -H "Authorization: Bearer <access_token>"
+
+# Update Admin
+curl -X PUT http://localhost:8000/api/accounts/admin/2/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"first_name\": \"Updated\", \"last_name\": \"Name\"}"
+
+# Delete Admin
+curl -X DELETE http://localhost:8000/api/accounts/admin/2/ -H "Authorization: Bearer <access_token>"
+
+========================================
+4. TRAINER MANAGEMENT
+========================================
+
+# Create Trainer (Admin only)
+curl -X POST http://localhost:8000/api/accounts/signup/trainer/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"email\": \"trainer@example.com\", \"first_name\": \"John\", \"last_name\": \"Trainer\", \"specialization\": \"Weight Loss Expert\", \"bio\": \"10 years of experience\", \"phone\": \"9876543210\", \"category_ids\": [1, 2]}"
+
+# List Trainers (with filters)
+curl -X GET "http://localhost:8000/api/accounts/trainer/?page=1&page_size=10&specialization=weight&category=1" -H "Authorization: Bearer <access_token>"
+
+# Get Trainer Details
+curl -X GET http://localhost:8000/api/accounts/trainer/1/ -H "Authorization: Bearer <access_token>"
+
+# Update Trainer
+curl -X PUT http://localhost:8000/api/accounts/trainer/1/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"specialization\": \"Advanced Metabolic Health\", \"bio\": \"Updated bio\"}"
+
+# Delete Trainer
+curl -X DELETE http://localhost:8000/api/accounts/trainer/1/ -H "Authorization: Bearer <access_token>"
+
+========================================
+5. CLIENT MANAGEMENT
+========================================
+
+# Create Client (Public)
+curl -X POST http://localhost:8000/api/accounts/signup/client/ -H "Content-Type: application/json" -d "{\"email\": \"client@example.com\", \"first_name\": \"Jane\", \"last_name\": \"Client\", \"phone\": \"9988776655\", \"date_of_birth\": \"1990-05-15\", \"address\": \"123 Main Street\", \"category_ids\": [1, 3]}"
+
+# List Clients
+curl -X GET "http://localhost:8000/api/accounts/client/?page=1&page_size=10&trainer=1&category=1" -H "Authorization: Bearer <access_token>"
+
+# Get Client Details
+curl -X GET http://localhost:8000/api/accounts/client/1/ -H "Authorization: Bearer <access_token>"
+
+# Update Client
+curl -X PUT http://localhost:8000/api/accounts/client/1/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"phone\": \"9999999999\", \"address\": \"456 New Address\"}"
+
+# Delete Client
+curl -X DELETE http://localhost:8000/api/accounts/client/1/ -H "Authorization: Bearer <access_token>"
+
+========================================
+6. CATEGORY MANAGEMENT
+========================================
+
+# Create Category (Admin only)
+curl -X POST http://localhost:8000/api/accounts/categories/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"name\": \"Weight Loss\", \"description\": \"Programs focused on healthy weight reduction\", \"is_active\": true}"
+
+# List Categories
+curl -X GET http://localhost:8000/api/accounts/categories/ -H "Authorization: Bearer <access_token>"
+
+# Get Category Details
+curl -X GET http://localhost:8000/api/accounts/categories/1/ -H "Authorization: Bearer <access_token>"
+
+# Update Category
+curl -X PUT http://localhost:8000/api/accounts/categories/1/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"name\": \"Advanced Weight Loss\", \"description\": \"Updated description\"}"
+
+# Delete Category
+curl -X DELETE http://localhost:8000/api/accounts/categories/1/ -H "Authorization: Bearer <access_token>"
+
+# Get All Categories (including inactive - Admin only)
+curl -X GET http://localhost:8000/api/accounts/categories/all_categories/ -H "Authorization: Bearer <access_token>"
+
+========================================
+7. TRAINER-CLIENT LINK MANAGEMENT
+========================================
+
+# Create Link
+curl -X POST http://localhost:8000/api/accounts/trainer-client-links/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"client\": 1, \"trainer\": 1, \"is_active\": true, \"is_subscribed\": true}"
+
+# List All Links
+curl -X GET http://localhost:8000/api/accounts/trainer-client-links/ -H "Authorization: Bearer <access_token>"
+
+# Get Link Details
+curl -X GET http://localhost:8000/api/accounts/trainer-client-links/1/ -H "Authorization: Bearer <access_token>"
+
+# Toggle Active Status
+curl -X POST http://localhost:8000/api/accounts/trainer-client-links/1/toggle_active/ -H "Authorization: Bearer <access_token>"
+
+# Toggle Subscription Status
+curl -X POST http://localhost:8000/api/accounts/trainer-client-links/1/toggle_subscribed/ -H "Authorization: Bearer <access_token>"
+
+# Update Link
+curl -X PUT http://localhost:8000/api/accounts/trainer-client-links/1/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"is_active\": false, \"is_subscribed\": true}"
+
+# Delete Link
+curl -X DELETE http://localhost:8000/api/accounts/trainer-client-links/1/ -H "Authorization: Bearer <access_token>"
+
+========================================
+8. ROLE MANAGEMENT (Admin only)
+========================================
+
+# Create Role
+curl -X POST http://localhost:8000/api/accounts/roles/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"name\": \"Premium Trainer\", \"permissions\": [\"can_view_trainer\", \"update_trainer\"], \"is_staff\": true, \"is_client\": false}"
+
+# List Roles
+curl -X GET http://localhost:8000/api/accounts/roles/ -H "Authorization: Bearer <access_token>"
+
+# Get Role Details
+curl -X GET http://localhost:8000/api/accounts/roles/1/ -H "Authorization: Bearer <access_token>"
+
+# Update Role
+curl -X PUT http://localhost:8000/api/accounts/roles/1/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"name\": \"Elite Trainer\", \"permissions\": [\"can_view_trainer\", \"update_trainer\", \"can_view_client\"]}"
+
+# Delete Role
+curl -X DELETE http://localhost:8000/api/accounts/roles/1/ -H "Authorization: Bearer <access_token>"
+
+========================================
+9. TRAINER CATEGORY ACTIONS
+========================================
+
+# Add Categories to Trainer
+curl -X POST http://localhost:8000/api/accounts/trainers-viewset/1/add_categories/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"category_ids\": [1, 2, 3]}"
+
+# Remove Categories from Trainer
+curl -X POST http://localhost:8000/api/accounts/trainers-viewset/1/remove_categories/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"category_ids\": [1]}"
+
+========================================
+10. CLIENT CATEGORY ACTIONS
+========================================
+
+# Add Categories to Client
+curl -X POST http://localhost:8000/api/accounts/clients-viewset/1/add_categories/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"category_ids\": [2, 3]}"
+
+# Remove Categories from Client
+curl -X POST http://localhost:8000/api/accounts/clients-viewset/1/remove_categories/ -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"category_ids\": [2]}"
+
+========================================
+11. VIEWSET ENDPOINTS (Alternative CRUD)
+========================================
+
+# List all trainers (ViewSet)
+curl -X GET http://localhost:8000/api/accounts/trainers-viewset/ -H "Authorization: Bearer <access_token>"
+
+# Get trainer by ID (ViewSet)
+curl -X GET http://localhost:8000/api/accounts/trainers-viewset/1/ -H "Authorization: Bearer <access_token>"
+
+# List all clients (ViewSet)
+curl -X GET http://localhost:8000/api/accounts/clients-viewset/ -H "Authorization: Bearer <access_token>"
+
+# Get client by ID (ViewSet)
+curl -X GET http://localhost:8000/api/accounts/clients-viewset/1/ -H "Authorization: Bearer <access_token>"
+
+========================================
+12. ADDITIONAL FILTER EXAMPLES
+========================================
+
+# Filter trainers by email
+curl -X GET "http://localhost:8000/api/accounts/trainer/?email=trainer@example.com" -H "Authorization: Bearer <access_token>"
+
+# Filter trainers by specialization
+curl -X GET "http://localhost:8000/api/accounts/trainer/?specialization=weight" -H "Authorization: Bearer <access_token>"
+
+# Filter clients by trainer
+curl -X GET "http://localhost:8000/api/accounts/client/?trainer=1" -H "Authorization: Bearer <access_token>"
+
+# Filter clients by category
+curl -X GET "http://localhost:8000/api/accounts/client/?category=1" -H "Authorization: Bearer <access_token>"
+
+# Pagination with custom page size
+curl -X GET "http://localhost:8000/api/accounts/trainer/?page=2&page_size=20" -H "Authorization: Bearer <access_token>"
+
+================================================================================
+                                    END
+================================================================================
