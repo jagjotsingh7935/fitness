@@ -82,11 +82,12 @@ class CategorySerializer(serializers.ModelSerializer):
         return None
 
 
+
 # Trainer Serializers
 class TrainerCreateSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(required=True)
-    first_name = serializers.CharField(required=True)
-    last_name = serializers.CharField(required=True)
+    email = serializers.EmailField(required=True, write_only=True)
+    first_name = serializers.CharField(required=True, write_only=True)
+    last_name = serializers.CharField(required=True, write_only=True)
     password = serializers.CharField(write_only=True, required=False)
     category_ids = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.filter(is_active=True), 
@@ -98,16 +99,46 @@ class TrainerCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrainerProfile
         fields = ['id', 'email', 'first_name', 'last_name', 'password', 'specialization', 'bio', 
-                  'avatar', 'phone', 'is_active', 'category_ids']
+                  'avatar', 'phone', 'is_active', 'category_ids', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        """Handle FormData conversion for category_ids: convert '1,2,3' to [1,2,3]."""
+        print("Raw data received:", data)
+        
+        mutable_data = data.copy() if hasattr(data, 'copy') else data
+        
+        if 'category_ids' in mutable_data:
+            category_ids_value = mutable_data.get('category_ids')
+            
+            if isinstance(category_ids_value, str):
+                if ',' in category_ids_value:
+                    category_ids_list = [int(id.strip()) for id in category_ids_value.split(',') if id.strip()]
+                    mutable_data.setlist('category_ids', category_ids_list)
+                    print(f"Converted category_ids: {category_ids_list}")
+                elif category_ids_value:
+                    category_ids_list = [int(category_ids_value)]
+                    mutable_data.setlist('category_ids', category_ids_list)
+                    print(f"Converted single category_id: {category_ids_list}")
+        
+        return super().to_internal_value(mutable_data)
 
     @transaction.atomic
     def create(self, validated_data):
+        # Extract user-related fields
         email = validated_data.pop('email')
         first_name = validated_data.pop('first_name')
         last_name = validated_data.pop('last_name')
         password = validated_data.pop('password', None)
         category_ids = validated_data.pop('category_ids', [])
         
+        # Remove 'admin' if present in validated_data (to avoid duplication)
+        validated_data.pop('admin', None)
+        
+        # Get admin from context (passed via view)
+        admin = self.context['request'].user
+        
+        # Check if user already exists
         if User.objects.filter(email=email).exists():
             raise serializers.ValidationError({'email': 'Email already exists'})
         
@@ -123,18 +154,17 @@ class TrainerCreateSerializer(serializers.ModelSerializer):
         # Set password or generate temporary one
         if password:
             user.set_password(password)
+            user.save()
         else:
             temp_password = pwo.generate()
             user.set_password(temp_password)
-            # Send email with password
+            user.save()
             self.send_welcome_email(email, first_name, last_name, temp_password)
         
-        user.save()
-        
-        # Create trainer profile
+        # Create trainer profile (validated_data now only contains TrainerProfile fields)
         trainer = TrainerProfile.objects.create(
             user=user,
-            admin=self.context['request'].user,  # Current admin
+            admin=admin,
             **validated_data
         )
         
@@ -143,8 +173,10 @@ class TrainerCreateSerializer(serializers.ModelSerializer):
             trainer.categories.set(category_ids)
         
         return trainer
-    
+
+
     def send_welcome_email(self, email, first_name, last_name, password):
+        """Send welcome email with temporary password."""
         try:
             subject = "Welcome as a Trainer - Fitness Platform"
             message = (
@@ -163,60 +195,84 @@ class TrainerCreateSerializer(serializers.ModelSerializer):
                 recipient_list=[email],
                 fail_silently=False,
             )
+            print(f"Welcome email sent to {email}")
         except Exception as e:
-            print(f"Failed to send email: {str(e)}")
+            print(f"Failed to send email to {email}: {str(e)}")
 
 
-class TrainerDetailSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(source='user.email', read_only=True)
-    first_name = serializers.CharField(source='user.first_name', read_only=True)
-    last_name = serializers.CharField(source='user.last_name', read_only=True)
-    full_name = serializers.SerializerMethodField()
-    categories = CategorySerializer(many=True, read_only=True)
-    admin_email = serializers.EmailField(source='admin.email', read_only=True)
-    client_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = TrainerProfile
-        fields = ['id', 'email', 'first_name', 'last_name', 'full_name', 'admin_email', 
-                  'specialization', 'bio', 'avatar', 'phone', 'is_active', 'categories',
-                  'client_count', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
-
-    def get_full_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.email
-    
-    def get_client_count(self, obj):
-        return obj.client_links.filter(is_active=True).count()
-
-
+# Optional: Trainer List Serializer (for viewing trainers)
 class TrainerListSerializer(serializers.ModelSerializer):
-    trainer_id = serializers.IntegerField(source='id')
-    name = serializers.SerializerMethodField()
-    email = serializers.EmailField(source='user.email')
-    categories = serializers.SerializerMethodField()
-    admin_name = serializers.SerializerMethodField()
+    """Serializer for listing trainers with user details."""
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    user_full_name = serializers.SerializerMethodField()
+    admin_email = serializers.EmailField(source='admin.email', read_only=True)
+    category_names = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = TrainerProfile
-        fields = ['trainer_id', 'name', 'email', 'specialization', 'bio', 'avatar', 
-                  'phone', 'is_active', 'categories', 'admin_name', 'created_at']
+        fields = ['id', 'user_email', 'user_full_name', 'admin_email', 'specialization', 
+                  'bio', 'avatar_url', 'phone', 'is_active', 'category_names', 
+                  'created_at', 'updated_at']
 
-    def get_name(self, obj):
+    def get_user_full_name(self, obj):
         return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.email
+
+    def get_category_names(self, obj):
+        return [cat.name for cat in obj.categories.all()]
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
+
+
+# Optional: Trainer Detail Serializer (for viewing single trainer)
+class TrainerDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for single trainer."""
+    user = serializers.SerializerMethodField()
+    admin = serializers.SerializerMethodField()
+    categories = CategorySerializer(many=True, read_only=True)
+    avatar_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TrainerProfile
+        fields = ['id', 'user', 'admin', 'specialization', 'bio', 'avatar_url', 
+                  'phone', 'is_active', 'categories', 'created_at', 'updated_at']
+
+    def get_user(self, obj):
+        return {
+            'email': obj.user.email,
+            'first_name': obj.user.first_name,
+            'last_name': obj.user.last_name,
+            'full_name': f"{obj.user.first_name} {obj.user.last_name}".strip()
+        }
+
+    def get_admin(self, obj):
+        return {
+            'email': obj.admin.email,
+            'first_name': obj.admin.first_name,
+            'last_name': obj.admin.last_name
+        }
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
     
-    def get_categories(self, obj):
-        return [{'id': cat.id, 'name': cat.name} for cat in obj.categories.all()]
-    
-    def get_admin_name(self, obj):
-        return obj.admin.email
 
 
 # Client Serializers
 class ClientCreateSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(required=True)
-    first_name = serializers.CharField(required=True)
-    last_name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=True, write_only=True)
+    first_name = serializers.CharField(required=True, write_only=True)
+    last_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
     password = serializers.CharField(write_only=True, required=False)
     category_ids = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.filter(is_active=True), 
@@ -228,7 +284,27 @@ class ClientCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClientProfile
         fields = ['id', 'email', 'first_name', 'last_name', 'password', 'date_of_birth', 
-                  'phone', 'address', 'is_active', 'category_ids']
+                  'phone', 'address', 'is_active', 'category_ids', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        """Handle FormData conversion for category_ids: convert '1,2,3' to [1,2,3]."""
+        print("Raw client signup data:", data)
+        
+        mutable_data = data.copy() if hasattr(data, 'copy') else data
+        
+        if 'category_ids' in mutable_data:
+            category_ids_value = mutable_data.get('category_ids')
+            
+            if isinstance(category_ids_value, str):
+                if ',' in category_ids_value:
+                    category_ids_list = [int(id.strip()) for id in category_ids_value.split(',') if id.strip()]
+                    mutable_data.setlist('category_ids', category_ids_list)
+                elif category_ids_value:
+                    category_ids_list = [int(category_ids_value)]
+                    mutable_data.setlist('category_ids', category_ids_list)
+        
+        return super().to_internal_value(mutable_data)
 
     @transaction.atomic
     def create(self, validated_data):
@@ -294,7 +370,7 @@ class ClientCreateSerializer(serializers.ModelSerializer):
         except Exception as e:
             print(f"Failed to send email: {str(e)}")
 
-
+            
 class ClientDetailSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
