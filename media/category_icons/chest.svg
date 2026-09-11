@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="chestGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E5C07B"/>
+      <stop offset="100%" stop-color="#D4AF37"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="#141829" stroke="url(#chestGrad)" stroke-width="2"/>
+  <path d="M16 26C16 22 22 20 32 24C42 20 48 22 48 26C48 34 40 42 32 44C24 42 16 34 16 26Z" fill="url(#chestGrad)" opacity="0.25"/>
+  <path d="M16 26C16 22 22 20 32 24C42 20 48 22 48 26C48 34 40 42 32 44C24 42 16 34 16 26Z" stroke="url(#chestGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="32" y1="24" x2="32" y2="44" stroke="url(#chestGrad)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 28H8M56 28H52" stroke="#E5C07B" stroke-width="3" stroke-linecap="round"/>
+</svg>

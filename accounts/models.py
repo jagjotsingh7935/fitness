@@ -90,6 +90,15 @@ class TrainerProfile(models.Model):
         return f"{self.user.get_full_name() or self.user.email} (Trainer for {self.admin.email})"
 
 
+class BMI(models.Model):
+    bmi = models.JSONField()
+    generated_on = models.DateTimeField(auto_now_add=True)
+
+class FatPercent(models.Model):
+    fat_percent = models.JSONField()
+    generated_on = models.DateTimeField(auto_now_add=True)
+
+
 class ClientProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='client_profile')
     categories = models.ManyToManyField(Category, related_name='clients', blank=True)
@@ -99,6 +108,30 @@ class ClientProfile(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    #optional fields
+    gender = models.CharField(max_length=100,null=True,blank=True)
+    age = models.CharField(max_length=100,null=True,blank=True)
+
+    weight = models.JSONField(null=True,blank=True)
+
+    height = models.JSONField(null=True,blank=True)
+
+    neck_circumference = models.JSONField(null=True,blank=True)
+
+    waist = models.JSONField(null=True,blank=True)
+
+    bmi = models.ForeignKey(BMI,on_delete=models.CASCADE,null=True,blank=True)
+
+    fat_percent = models.ForeignKey(FatPercent, on_delete=models.CASCADE, null=True, blank=True)
+
+    # Preferred / Goal metrics
+    preferred_bmi = models.JSONField(null=True, blank=True)
+    preferred_weight = models.JSONField(null=True, blank=True)
+    preferred_waist = models.JSONField(null=True, blank=True)
+    preferred_fat_percent = models.JSONField(null=True, blank=True)
+
+
 
     class Meta:
         verbose_name = "Client Profile"

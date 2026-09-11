@@ -17,15 +17,15 @@ class AdminOnlyPermission(BasePermission):
             if not (request.user.is_authenticated and 
                     (getattr(request.user, 'is_admin', False) or request.user.is_superuser)):
                 
-                print("❌ Permission Denied")
+                print("[Permission Denied]")
                 raise PermissionDenied("You do not have permission to access this")
             
-            print("✅ Permission Granted")
+            print("[Permission Granted]")
             print("---- Permission Check End ----")
             return True
 
         except AttributeError as e:
-            print(f"⚠️ Error checking admin permission: {str(e)}")
+            print(f"[Error checking admin permission]: {str(e)}")
             raise PermissionDenied("You do not have permission to access this")
         
 

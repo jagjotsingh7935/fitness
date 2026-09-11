@@ -1,1 +1,16 @@
 .env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+staticfiles/
+*.sqlite3-journal
+.vscode/
+.idea/
+
+# Ignore large downloaded videos to keep repo within GitHub limits
+media/exercise_videos/*.mp4
+!media/exercise_videos/Dumbbell_Bench_Press.mp4
+!media/exercise_videos/Push-ups.mp4
+!media/exercise_videos/Push-ups_aG3oAsv.mp4
+!media/exercise_videos/Push-ups_h17PLkl.mp4

@@ -67,6 +67,64 @@ class ClientWorkoutPlan(models.Model):
         return f"{self.client.user.email} - {self.get_day_of_week_display()} - {self.exercise.title}"
 
 
+class MasterWorkoutPlan(models.Model):
+    """Master workout program template created by trainer or admin."""
+    trainer = models.ForeignKey(
+        TrainerProfile,
+        on_delete=models.CASCADE,
+        related_name='master_workout_plans',
+        null=True,
+        blank=True
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    categories = models.ManyToManyField(Category, related_name='master_workout_plans', blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Master Workout Plan"
+        verbose_name_plural = "Master Workout Plans"
+
+    def __str__(self):
+        return self.title
+
+
+class MasterWorkoutPlanItem(models.Model):
+    """Scheduled exercise item within a Master Workout Plan."""
+    DAYS_OF_WEEK = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+
+    master_plan = models.ForeignKey(MasterWorkoutPlan, on_delete=models.CASCADE, related_name='items')
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='master_plan_items')
+    day_of_week = models.IntegerField(choices=DAYS_OF_WEEK)
+    sets = models.PositiveSmallIntegerField(default=3)
+    reps = models.PositiveSmallIntegerField(default=12)
+    time_per_rep_seconds = models.PositiveSmallIntegerField(default=15, help_text="Seconds per repetition")
+    order = models.PositiveSmallIntegerField(default=0, help_text="Order within the day")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['day_of_week', 'order']
+        verbose_name = "Master Plan Item"
+        verbose_name_plural = "Master Plan Items"
+
+    def __str__(self):
+        return f"{self.master_plan.title} - {self.get_day_of_week_display()} - {self.exercise.title}"
+
+
+
 
 
 class DailyKcalTarget(models.Model):
@@ -195,3 +253,172 @@ class ClientSleepLog(models.Model):
     class Meta:
         unique_together = ['client', 'date']
         ordering = ['-date']
+
+
+# ---------- Client Streak & Gamification ----------
+class ClientStreak(models.Model):
+    """Tracks consecutive active days and check-in streak for a client."""
+    client = models.OneToOneField(ClientProfile, on_delete=models.CASCADE, related_name='streak')
+    current_streak = models.PositiveIntegerField(default=1)
+    longest_streak = models.PositiveIntegerField(default=1)
+    last_activity_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Client Streak"
+        verbose_name_plural = "Client Streaks"
+
+    def __str__(self):
+        return f"{self.client.user.email} - Streak: {self.current_streak} (Best: {self.longest_streak})"
+
+
+class ClientAchievement(models.Model):
+    """Unlocked badges and milestones earned by a client."""
+    client = models.ForeignKey(ClientProfile, on_delete=models.CASCADE, related_name='achievements')
+    badge_key = models.CharField(max_length=50)
+    name = models.CharField(max_length=100)
+    emoji = models.CharField(max_length=10)
+    description = models.CharField(max_length=255)
+    unlocked_at = models.DateTimeField(auto_now_add=True)
+    is_seen = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['client', 'badge_key']
+        ordering = ['-unlocked_at']
+        verbose_name = "Client Achievement"
+        verbose_name_plural = "Client Achievements"
+
+    def __str__(self):
+        return f"{self.client.user.email} - {self.emoji} {self.name}"
+
+
+# ---------- Client Diet & Nutrition Models ----------
+class ClientDietPlan(models.Model):
+    """Diet plan assigned to a client by Admin or Trainer."""
+    client = models.ForeignKey(ClientProfile, on_delete=models.CASCADE, related_name='diet_plans')
+    trainer = models.ForeignKey(TrainerProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_diet_plans')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_diet_plans')
+    title = models.CharField(max_length=200, default="Personalized Nutrition Plan")
+    daily_calorie_target = models.PositiveIntegerField(default=2000)
+    protein_grams = models.PositiveIntegerField(default=140)
+    carbs_grams = models.PositiveIntegerField(default=220)
+    fat_grams = models.PositiveIntegerField(default=65)
+    notes = models.TextField(blank=True, help_text="Special coach instructions, hydration guidelines, foods to avoid")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Client Diet Plan"
+        verbose_name_plural = "Client Diet Plans"
+
+    def __str__(self):
+        return f"{self.client.user.email} - {self.title} ({self.daily_calorie_target} kcal)"
+
+
+class ClientDietMealItem(models.Model):
+    """Scheduled meals within a diet plan."""
+    MEAL_TYPES = [
+        ('BREAKFAST', 'Breakfast'),
+        ('MID_MORNING', 'Mid-Morning Snack'),
+        ('LUNCH', 'Lunch'),
+        ('EVENING_SNACK', 'Evening Snack'),
+        ('DINNER', 'Dinner'),
+        ('POST_WORKOUT', 'Post-Workout Fuel'),
+    ]
+
+    diet_plan = models.ForeignKey(ClientDietPlan, on_delete=models.CASCADE, related_name='meals')
+    meal_type = models.CharField(max_length=20, choices=MEAL_TYPES, default='BREAKFAST')
+    name = models.CharField(max_length=255, help_text="Meal description, e.g. Oatmeal with Whey & Banana")
+    time_label = models.CharField(max_length=50, blank=True, help_text="e.g. 7:30 AM")
+    calories = models.PositiveIntegerField(default=350)
+    protein_grams = models.PositiveIntegerField(default=0, blank=True, null=True)
+    carbs_grams = models.PositiveIntegerField(default=0, blank=True, null=True)
+    fat_grams = models.PositiveIntegerField(default=0, blank=True, null=True)
+    custom_emoji = models.CharField(max_length=10, blank=True, help_text="Optional custom emoji")
+    order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'created_at']
+
+    @property
+    def emoji(self):
+        if self.custom_emoji:
+            return self.custom_emoji
+        defaults = {
+            'BREAKFAST': '🌅',
+            'MID_MORNING': '🍎',
+            'LUNCH': '🥗',
+            'EVENING_SNACK': '🥜',
+            'DINNER': '🍽️',
+            'POST_WORKOUT': '⚡',
+        }
+        return defaults.get(self.meal_type, '🍽️')
+
+    def __str__(self):
+        return f"{self.get_meal_type_display()}: {self.name}"
+
+
+class ClientMealLog(models.Model):
+    """Tracks if client ate/checked off the meal on a given date."""
+    client = models.ForeignKey(ClientProfile, on_delete=models.CASCADE, related_name='meal_logs')
+    meal_item = models.ForeignKey(ClientDietMealItem, on_delete=models.CASCADE, related_name='logs')
+    date = models.DateField()
+    is_completed = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['client', 'meal_item', 'date']
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.client.user.email} - {self.meal_item.name} on {self.date}: {self.is_completed}"
+
+
+
+
+# ---------- Auto-generate Exercise Thumbnail & Duration Signal ----------
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.conf import settings
+import os
+
+@receiver(post_save, sender=Exercise)
+def auto_generate_exercise_thumbnail(sender, instance, created, **kwargs):
+    """Automatically extracts frame and calculates duration for newly uploaded exercise videos."""
+    if instance.video and not instance.thumbnail:
+        try:
+            import cv2
+            video_path = instance.video.path if hasattr(instance.video, 'path') else os.path.join(settings.MEDIA_ROOT, str(instance.video))
+            if os.path.exists(video_path):
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+                    duration = int(total_frames / fps) if fps > 0 else 0
+
+                    target_frame = min(int(fps * 1.0), max(0, total_frames // 4))
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = cap.read()
+                    cap.release()
+
+                    if ret and frame is not None:
+                        thumb_dir = os.path.join(settings.MEDIA_ROOT, 'exercise_thumbnails')
+                        os.makedirs(thumb_dir, exist_ok=True)
+                        thumb_filename = f'exercise_{instance.id}.jpg'
+                        thumb_path = os.path.join(thumb_dir, thumb_filename)
+                        cv2.imwrite(thumb_path, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+
+                        rel_path = f'exercise_thumbnails/{thumb_filename}'
+                        update_fields = {'thumbnail': rel_path}
+                        if duration > 0 and instance.duration_seconds == 0:
+                            update_fields['duration_seconds'] = duration
+                        Exercise.objects.filter(pk=instance.pk).update(**update_fields)
+        except Exception as e:
+            print(f"[WARN] Error auto-generating thumbnail for Exercise #{instance.id}: {e}")

@@ -16,6 +16,14 @@ urlpatterns = [
     path('workout-plans/<int:pk>/', WorkoutPlanDetailView.as_view(), name='workoutplan-detail'),
     path('my-workout-plans/', ClientWorkoutPlanByDayView.as_view(), name='my-workout-plans'),
 
+    # Master Workout Plan (Templates) endpoints
+    path('master-workout-plans/', MasterWorkoutPlanListCreateView.as_view(), name='master-workoutplan-list'),
+    path('master-workout-plans/create/', MasterWorkoutPlanListCreateView.as_view(), name='master-workoutplan-create'),
+    path('master-workout-plans/<int:pk>/', MasterWorkoutPlanDetailView.as_view(), name='master-workoutplan-detail'),
+    path('master-workout-plans/<int:pk>/items/', MasterWorkoutPlanAddItemView.as_view(), name='master-workoutplan-add-item'),
+    path('master-workout-plans/items/<int:pk>/', MasterWorkoutPlanDeleteItemView.as_view(), name='master-workoutplan-delete-item'),
+    path('master-workout-plans/<int:pk>/assign/', AssignMasterWorkoutPlanView.as_view(), name='master-workoutplan-assign'),
+
         # Kcal target endpoints
     path('kcal-targets/', DailyKcalTargetListView.as_view(), name='kcaltarget-list'),
     path('kcal-targets/<int:pk>/', DailyKcalTargetDetailView.as_view(), name='kcaltarget-detail'),
@@ -40,5 +48,13 @@ urlpatterns = [
     path('sleep-logs/', SleepLogListView.as_view(), name='sleep-log-list'),
     path('sleep-logs/<int:pk>/', SleepLogDetailView.as_view(), name='sleep-log-detail'),
 
-    
+    # Client Streak & Achievements
+    path('client-checkin/', ClientCheckInView.as_view(), name='client-checkin'),
+    path('client-achievements/mark-seen/', MarkAchievementSeenView.as_view(), name='client-achievements-mark-seen'),
+
+    # Diet & Nutrition Plans
+    path('diet-plans/', DietPlanListCreateView.as_view(), name='diet-plan-list'),
+    path('diet-plans/<int:pk>/', DietPlanDetailView.as_view(), name='diet-plan-detail'),
+    path('my-diet-plan/', ClientMyDietPlanView.as_view(), name='my-diet-plan'),
+    path('my-diet-plan/meals/<int:pk>/toggle/', ClientToggleMealView.as_view(), name='my-diet-meal-toggle'),
 ]

@@ -198,13 +198,78 @@ class ClientWorkoutPlanCreateUpdateSerializer(serializers.ModelSerializer):
                 validated_data['trainer'] = request.user.trainer_profile
         return super().create(validated_data)
 
+# ------------------- Master Workout Plan Serializers -------------------
+class MasterWorkoutPlanItemSerializer(serializers.ModelSerializer):
+    exercise_detail = ExerciseSerializer(source='exercise', read_only=True)
+    day_display = serializers.CharField(source='get_day_of_week_display', read_only=True)
+
+    class Meta:
+        model = MasterWorkoutPlanItem
+        fields = ['id', 'master_plan', 'exercise', 'exercise_detail',
+                  'day_of_week', 'day_display', 'sets', 'reps',
+                  'time_per_rep_seconds', 'order', 'notes', 'created_at']
+        read_only_fields = ['created_at', 'master_plan']
+
+
+class MasterWorkoutPlanSerializer(serializers.ModelSerializer):
+    items = MasterWorkoutPlanItemSerializer(many=True, read_only=True)
+    categories = CategorySerializer(many=True, read_only=True)
+    category_ids = serializers.PrimaryKeyRelatedField(
+        source='categories',
+        queryset=Category.objects.filter(is_active=True),
+        many=True,
+        write_only=True,
+        required=False
+    )
+    trainer_name = serializers.SerializerMethodField()
+    items_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MasterWorkoutPlan
+        fields = ['id', 'trainer', 'trainer_name', 'title', 'description',
+                  'categories', 'category_ids', 'items', 'items_count',
+                  'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_trainer_name(self, obj):
+        if obj.trainer and obj.trainer.user:
+            return obj.trainer.user.get_full_name() or obj.trainer.user.email
+        return "System Admin"
+
+    def get_items_count(self, obj):
+        return obj.items.count()
+
+    def create(self, validated_data):
+        categories = validated_data.pop('categories', [])
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'trainer_profile'):
+            validated_data['trainer'] = request.user.trainer_profile
+        master_plan = MasterWorkoutPlan.objects.create(**validated_data)
+        if categories:
+            master_plan.categories.set(categories)
+        return master_plan
+
     def update(self, instance, validated_data):
-        # Prevent changing trainer on update
-        validated_data.pop('trainer', None)
-        return super().update(instance, validated_data)
-    
+        categories = validated_data.pop('categories', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if categories is not None:
+            instance.categories.set(categories)
+        return instance
 
 
+class AssignMasterWorkoutPlanSerializer(serializers.Serializer):
+    client_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="List of ClientProfile IDs to assign the master workout plan to"
+    )
+    clear_existing = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="If true, removes existing active workout plans for these clients before assigning"
+    )
 
 
 # ------------------- Kcal Target Serializers -------------------
@@ -431,3 +496,130 @@ class ClientSleepLogCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClientSleepLog
         fields = ['date', 'actual_hours', 'notes']
+
+
+# ------------------- Diet & Nutrition Serializers -------------------
+
+class ClientDietMealItemSerializer(serializers.ModelSerializer):
+    meal_type_display = serializers.CharField(source='get_meal_type_display', read_only=True)
+    emoji = serializers.CharField(read_only=True)
+    done = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClientDietMealItem
+        fields = [
+            'id', 'diet_plan', 'meal_type', 'meal_type_display', 'name',
+            'time_label', 'calories', 'protein_grams', 'carbs_grams', 'fat_grams',
+            'custom_emoji', 'emoji', 'order', 'done', 'created_at'
+        ]
+        read_only_fields = ['id', 'diet_plan', 'created_at']
+
+    def get_done(self, obj):
+        request = self.context.get('request')
+        if not request or not hasattr(request.user, 'client_profile'):
+            return False
+        from django.utils import timezone
+        today = timezone.localdate()
+        return ClientMealLog.objects.filter(
+            client=request.user.client_profile,
+            meal_item=obj,
+            date=today,
+            is_completed=True
+        ).exists()
+
+
+class ClientDietPlanSerializer(serializers.ModelSerializer):
+    meals = ClientDietMealItemSerializer(many=True, read_only=True)
+    client_name = serializers.SerializerMethodField()
+    client_email = serializers.EmailField(source='client.user.email', read_only=True)
+    trainer_name = serializers.SerializerMethodField()
+    meals_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClientDietPlan
+        fields = [
+            'id', 'client', 'client_name', 'client_email', 'trainer',
+            'trainer_name', 'title', 'daily_calorie_target', 'protein_grams',
+            'carbs_grams', 'fat_grams', 'notes', 'is_active', 'meals',
+            'meals_count', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_client_name(self, obj):
+        return obj.client.user.get_full_name() or obj.client.user.email
+
+    def get_trainer_name(self, obj):
+        if obj.trainer and obj.trainer.user:
+            return obj.trainer.user.get_full_name() or obj.trainer.user.email
+        return "Admin"
+
+    def get_meals_count(self, obj):
+        return obj.meals.count()
+
+
+class ClientDietPlanCreateUpdateSerializer(serializers.ModelSerializer):
+    meals_data = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        write_only=True
+    )
+
+    class Meta:
+        model = ClientDietPlan
+        fields = [
+            'id', 'client', 'title', 'daily_calorie_target',
+            'protein_grams', 'carbs_grams', 'fat_grams', 'notes',
+            'is_active', 'meals_data'
+        ]
+
+    def create(self, validated_data):
+        meals_data = validated_data.pop('meals_data', [])
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'trainer_profile'):
+            validated_data['trainer'] = request.user.trainer_profile
+        if request:
+            validated_data['created_by'] = request.user
+
+        # Mark other diet plans for this client as inactive if this new one is active
+        if validated_data.get('is_active', True):
+            ClientDietPlan.objects.filter(client=validated_data['client']).update(is_active=False)
+
+        diet_plan = ClientDietPlan.objects.create(**validated_data)
+
+        for i, m in enumerate(meals_data):
+            ClientDietMealItem.objects.create(
+                diet_plan=diet_plan,
+                meal_type=m.get('meal_type', 'BREAKFAST'),
+                name=m.get('name', ''),
+                time_label=m.get('time_label', ''),
+                calories=int(m.get('calories') or 350),
+                protein_grams=int(m.get('protein_grams') or 0),
+                carbs_grams=int(m.get('carbs_grams') or 0),
+                fat_grams=int(m.get('fat_grams') or 0),
+                custom_emoji=m.get('custom_emoji', ''),
+                order=int(m.get('order') or i),
+            )
+        return diet_plan
+
+    def update(self, instance, validated_data):
+        meals_data = validated_data.pop('meals_data', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if meals_data is not None:
+            instance.meals.all().delete()
+            for i, m in enumerate(meals_data):
+                ClientDietMealItem.objects.create(
+                    diet_plan=instance,
+                    meal_type=m.get('meal_type', 'BREAKFAST'),
+                    name=m.get('name', ''),
+                    time_label=m.get('time_label', ''),
+                    calories=int(m.get('calories') or 350),
+                    protein_grams=int(m.get('protein_grams') or 0),
+                    carbs_grams=int(m.get('carbs_grams') or 0),
+                    fat_grams=int(m.get('fat_grams') or 0),
+                    custom_emoji=m.get('custom_emoji', ''),
+                    order=int(m.get('order') or i),
+                )
+        return instance

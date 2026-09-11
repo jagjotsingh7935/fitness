@@ -9,6 +9,8 @@ router.register(r'categories', views.CategoryViewSet)
 router.register(r'trainers-viewset', views.TrainerProfileViewSet)
 router.register(r'clients-viewset', views.ClientProfileViewSet)
 router.register(r'trainer-client-links', views.TrainerClientLinkViewSet)
+router.register(r'category-list', views.CategoryListForProfile, basename='category-list')
+
 
 urlpatterns = [
     # Authentication endpoints
@@ -41,8 +43,20 @@ urlpatterns = [
     path('roles/', views.RoleListCreateView.as_view(), name='role_list_create'),
     path('roles/<int:pk>/', views.RoleDetailView.as_view(), name='role_detail'),
 
-    
 
+
+    #Trainer By Categories
+    path('trainers-by-categories/', views.TrainersByCategoriesView.as_view(), name='trainers-by-categories'),
+
+
+    #Trainer Clients List
+    path('trainers-client-list/', views.TrainerClientsView.as_view(), name='trainers-client-list'),
+
+    # Assign Trainer to Client
+    path('assign-trainer/', views.AssignTrainerToClientView.as_view(), name='assign-trainer'),
+
+
+    
 
     
     # Include router URLs
