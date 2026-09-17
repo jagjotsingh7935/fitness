@@ -121,7 +121,7 @@ class ClientWorkoutPlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClientWorkoutPlan
         fields = ['id', 'trainer', 'trainer_name', 'client', 'client_name',
-                  'exercise', 'exercise_detail', 'day_of_week', 'day_display',
+                  'exercise', 'exercise_detail', 'master_plan', 'day_of_week', 'day_display',
                   'sets', 'reps', 'time_per_rep_seconds', 'order', 'notes',
                   'is_active', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
@@ -136,19 +136,11 @@ class ClientWorkoutPlanSerializer(serializers.ModelSerializer):
         # Ensure the trainer is authorized to assign this exercise to this client
         trainer = data.get('trainer')
         client = data.get('client')
-        exercise = data.get('exercise')
 
         if trainer and client:
             # Check if client is linked to trainer with active subscription
             if not TrainerClientLink.objects.filter(trainer=trainer, client=client, is_active=True).exists():
                 raise serializers.ValidationError("This client is not linked to this trainer with an active subscription.")
-
-        if trainer and exercise:
-            # Check if trainer has at least one category in common with exercise
-            trainer_cats = set(trainer.categories.all())
-            exercise_cats = set(exercise.categories.all())
-            if not trainer_cats.intersection(exercise_cats):
-                raise serializers.ValidationError("Trainer does not have the required category to assign this exercise.")
 
         return data
 
@@ -157,8 +149,18 @@ class ClientWorkoutPlanCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClientWorkoutPlan
         fields = ['id', 'trainer', 'client', 'exercise', 'day_of_week',
-                  'sets', 'reps', 'time_per_rep_seconds', 'order', 'notes', 'is_active']
+                  'sets', 'reps', 'time_per_rep_seconds', 'order', 'notes', 'is_active', 'master_plan']
         read_only_fields = ['trainer']  # Trainer is set automatically from the logged-in user
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        # Support both 'client_id' and 'client'
+        if 'client_id' in data and 'client' not in data:
+            data['client'] = data['client_id']
+        # Support both 'exercise_id' and 'exercise'
+        if 'exercise_id' in data and 'exercise' not in data:
+            data['exercise'] = data['exercise_id']
+        return super().to_internal_value(data)
 
     def validate(self, data):
         # Get trainer from context (passed via view) or from data (if someone tries to send it)
@@ -170,22 +172,14 @@ class ClientWorkoutPlanCreateUpdateSerializer(serializers.ModelSerializer):
                 trainer = request.user.trainer_profile
         
         client = data.get('client')
-        exercise = data.get('exercise')
 
-        # Validate trainer-client link
-        if trainer and client:
+        # Validate trainer-client link (if trainer is known and user is not admin)
+        request = self.context.get('request')
+        is_admin = request and (getattr(request.user, 'is_admin', False) or getattr(request.user, 'is_superuser', False))
+        if trainer and client and not is_admin:
             if not TrainerClientLink.objects.filter(trainer=trainer, client=client, is_active=True).exists():
                 raise serializers.ValidationError(
                     "This client is not linked to this trainer with an active subscription."
-                )
-
-        # Validate trainer exercise category match
-        if trainer and exercise:
-            trainer_cats = set(trainer.categories.all())
-            exercise_cats = set(exercise.categories.all())
-            if not trainer_cats.intersection(exercise_cats):
-                raise serializers.ValidationError(
-                    "Trainer does not have the required category to assign this exercise."
                 )
         
         return data
@@ -196,6 +190,23 @@ class ClientWorkoutPlanCreateUpdateSerializer(serializers.ModelSerializer):
             request = self.context.get('request')
             if request and hasattr(request.user, 'trainer_profile'):
                 validated_data['trainer'] = request.user.trainer_profile
+        
+        # Ensure order doesn't collide with unique constraint:
+        # unique_together = ['trainer', 'client', 'day_of_week', 'exercise', 'order']
+        trainer = validated_data.get('trainer')
+        client = validated_data.get('client')
+        day_of_week = validated_data.get('day_of_week')
+        order = validated_data.get('order', 0)
+
+        existing_orders = ClientWorkoutPlan.objects.filter(
+            trainer=trainer,
+            client=client,
+            day_of_week=day_of_week
+        ).values_list('order', flat=True)
+
+        if order in existing_orders:
+            validated_data['order'] = (max(existing_orders) if existing_orders else 0) + 1
+
         return super().create(validated_data)
 
 # ------------------- Master Workout Plan Serializers -------------------

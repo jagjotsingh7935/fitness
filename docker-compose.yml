@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fitness_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fitness_db
+      POSTGRES_USER: fitness_user
+      POSTGRES_PASSWORD: fitness_password_secure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitness_user -d fitness_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: fitness_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "80:8000"
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=django-insecure-oracle-fitness-prod-key-change-me
+      - DATABASE_URL=postgres://fitness_user:fitness_password_secure@db:5432/fitness_db
+      - SERVER_HOST=0.0.0.0
+    env_file:
+      - .env
+    volumes:
+      - ./media:/app/media
+
+volumes:
+  postgres_data:

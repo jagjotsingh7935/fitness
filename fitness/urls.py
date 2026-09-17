@@ -34,10 +34,10 @@ urlpatterns = [
 
 
 
-from django.views.static import serve
+from fitness.media_serve import range_media_serve
 
 urlpatterns += [
-    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    re_path(r'^media/(?P<path>.*)$', range_media_serve),
 ]
 
 if os.path.exists(os.path.join(settings.BASE_DIR, 'templates', 'index.html')) or os.path.exists(os.path.join(settings.BASE_DIR, 'dist', 'index.html')):

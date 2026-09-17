@@ -43,6 +43,14 @@ class ClientWorkoutPlan(models.Model):
     trainer = models.ForeignKey(TrainerProfile, on_delete=models.CASCADE, related_name='created_workouts')
     client = models.ForeignKey(ClientProfile, on_delete=models.CASCADE, related_name='workout_plans')
     exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='workout_plans')
+    master_plan = models.ForeignKey(
+        'fitnessApp.MasterWorkoutPlan',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='client_workout_plans',
+        help_text="Master workout plan this entry was assigned from, if any"
+    )
     day_of_week = models.IntegerField(choices=DAYS_OF_WEEK)
     sets = models.PositiveSmallIntegerField(default=1)
     reps = models.PositiveSmallIntegerField(default=1)
@@ -79,6 +87,12 @@ class MasterWorkoutPlan(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     categories = models.ManyToManyField(Category, related_name='master_workout_plans', blank=True)
+    assigned_clients = models.ManyToManyField(
+        ClientProfile,
+        related_name='assigned_master_plans',
+        blank=True,
+        help_text="Clients currently assigned to this master program"
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

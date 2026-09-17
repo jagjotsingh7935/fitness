@@ -260,6 +260,23 @@ CSRF_TRUSTED_ORIGINS = [
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
+SERVER_HOST = os.environ.get('SERVER_HOST')
+if SERVER_HOST:
+    if SERVER_HOST not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(SERVER_HOST)
+    for proto in ('http', 'https'):
+        for port_suffix in ('', ':8000', ':80'):
+            origin = f"{proto}://{SERVER_HOST}{port_suffix}"
+            if origin not in CSRF_TRUSTED_ORIGINS:
+                CSRF_TRUSTED_ORIGINS.append(origin)
+
+extra_csrf = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if extra_csrf:
+    for origin in extra_csrf.split(','):
+        cleaned = origin.strip()
+        if cleaned and cleaned not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(cleaned)
+
 
 
 

@@ -58,6 +58,26 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         user = serializer.user
         print(f"User retrieved from serializer: {user}")
 
+        # Check requested role if provided to restrict cross-portal logins
+        requested_role = request.data.get('role')
+        if requested_role:
+            role_str = str(requested_role).lower().strip()
+            if role_str == 'admin' and not (user.is_admin or user.is_staff or user.is_superuser):
+                return Response(
+                    {'detail': 'Access denied: This account does not have Admin privileges.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            elif role_str == 'trainer' and not user.is_trainer:
+                return Response(
+                    {'detail': 'Access denied: This account is not registered as a Trainer.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            elif role_str == 'client' and not user.is_client:
+                return Response(
+                    {'detail': 'Access denied: This account is not registered as a Client.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         user.last_login = now()
         user.save(update_fields=['last_login'])
         print(f"Updated last_login for user: {user}")

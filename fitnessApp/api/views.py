@@ -137,7 +137,14 @@ class ClientWorkoutPlanByDayView(generics.ListAPIView):
         user = self.request.user
         if hasattr(user, 'client_profile'):
             client = user.client_profile
-            return ClientWorkoutPlan.objects.filter(client=client, is_active=True).order_by('day_of_week', 'order')
+            qs = ClientWorkoutPlan.objects.filter(client=client, is_active=True)
+            day_of_week = self.request.query_params.get('day_of_week')
+            if day_of_week is not None and day_of_week != '':
+                try:
+                    qs = qs.filter(day_of_week=int(day_of_week))
+                except (ValueError, TypeError):
+                    pass
+            return qs.order_by('day_of_week', 'order')
         return ClientWorkoutPlan.objects.none()
 
 
@@ -181,7 +188,7 @@ class MasterWorkoutPlanDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class MasterWorkoutPlanAddItemView(generics.CreateAPIView):
-    """Add a scheduled exercise routine item to a master workout plan."""
+    """Add a scheduled exercise routine item to a master workout plan and sync to assigned clients."""
     serializer_class = MasterWorkoutPlanItemSerializer
     permission_classes = [IsAuthenticated]
 
@@ -191,7 +198,54 @@ class MasterWorkoutPlanAddItemView(generics.CreateAPIView):
         user = self.request.user
         if hasattr(user, 'trainer_profile') and master_plan.trainer and master_plan.trainer != user.trainer_profile:
             raise PermissionDenied("You do not have permission to modify this master plan.")
-        serializer.save(master_plan=master_plan)
+        master_item = serializer.save(master_plan=master_plan)
+
+        # Sync this new exercise item to all clients assigned / linked to this Master Program
+        assigned_clients = set(master_plan.assigned_clients.filter(is_active=True))
+        additional_clients = ClientProfile.objects.filter(
+            workout_plans__master_plan=master_plan,
+            workout_plans__is_active=True
+        ).distinct()
+        assigned_clients.update(additional_clients)
+
+        for client in assigned_clients:
+            client_trainer = master_plan.trainer
+            if not client_trainer:
+                link = TrainerClientLink.objects.filter(client=client, is_active=True).first()
+                if link:
+                    client_trainer = link.trainer
+
+            if not client_trainer:
+                continue
+
+            # Ensure client is actively linked with trainer
+            if not TrainerClientLink.objects.filter(trainer=client_trainer, client=client, is_active=True).exists():
+                continue
+
+            existing_orders = list(ClientWorkoutPlan.objects.filter(
+                client=client,
+                day_of_week=master_item.day_of_week
+            ).values_list('order', flat=True))
+
+            target_order = master_item.order
+            if target_order in existing_orders:
+                target_order = (max(existing_orders) if existing_orders else 0) + 1
+
+            ClientWorkoutPlan.objects.get_or_create(
+                trainer=client_trainer,
+                client=client,
+                exercise=master_item.exercise,
+                day_of_week=master_item.day_of_week,
+                defaults={
+                    'sets': master_item.sets,
+                    'reps': master_item.reps,
+                    'time_per_rep_seconds': master_item.time_per_rep_seconds,
+                    'order': target_order,
+                    'notes': master_item.notes,
+                    'master_plan': master_plan,
+                    'is_active': True,
+                }
+            )
 
 
 class MasterWorkoutPlanDeleteItemView(generics.DestroyAPIView):
@@ -251,6 +305,9 @@ class AssignMasterWorkoutPlanView(generics.GenericAPIView):
                     ClientWorkoutPlan.objects.filter(trainer=trainer, client=client).delete()
                 else:
                     ClientWorkoutPlan.objects.filter(client=client).delete()
+                # Remove client from other master plans
+                for other_mp in client.assigned_master_plans.exclude(id=master_plan.id):
+                    other_mp.assigned_clients.remove(client)
 
             # Create workout plan entries for each item in the master plan
             for item in master_items:
@@ -264,9 +321,11 @@ class AssignMasterWorkoutPlanView(generics.GenericAPIView):
                     time_per_rep_seconds=item.time_per_rep_seconds,
                     order=item.order,
                     notes=item.notes,
+                    master_plan=master_plan,
                     is_active=True
                 )
 
+            master_plan.assigned_clients.add(client)
             assigned_clients.append(client.id)
 
         return Response({
@@ -729,6 +788,47 @@ class ClientCheckInView(generics.GenericAPIView):
             })
             cur += timedelta(days=1)
 
+        today_weekday = today.weekday()
+
+        # 1. Evaluate full day hydration goal completion for today
+        hyd_target = DailyHydrationTarget.objects.filter(client=client, day_of_week=today_weekday).first()
+        target_cups = hyd_target.target_cups if hyd_target else 8
+        today_hyd = ClientHydrationLog.objects.filter(client=client, date=today).first()
+        actual_cups = today_hyd.actual_cups if today_hyd else 0
+        hydration_goal_completed = (target_cups > 0 and actual_cups >= target_cups)
+
+        # 2. Evaluate Goal Crusher: BOTH Diet Plan part and Kcal logs part must be completed
+        # 2a. Diet Plan part: must have active diet plan, scheduled meals, and all meals completed today
+        active_diet = ClientDietPlan.objects.filter(client=client, is_active=True).first()
+        diet_completed = False
+        if active_diet:
+            diet_meals = active_diet.meals.all()
+            total_meals = diet_meals.count()
+            if total_meals > 0:
+                completed_meals = ClientMealLog.objects.filter(
+                    client=client,
+                    meal_item__in=diet_meals,
+                    date=today,
+                    is_completed=True
+                ).count()
+                diet_completed = (completed_meals >= total_meals)
+
+        # 2b. Kcal log part: must have logged kcal for today meeting or exceeding target
+        kcal_target_obj = DailyKcalTarget.objects.filter(client=client, day_of_week=today_weekday).first()
+        if kcal_target_obj and kcal_target_obj.target_kcal > 0:
+            target_kcal = kcal_target_obj.target_kcal
+        elif active_diet and active_diet.daily_calorie_target > 0:
+            target_kcal = active_diet.daily_calorie_target
+        else:
+            target_kcal = 2000
+
+        today_kcal = ClientKcalLog.objects.filter(client=client, date=today).first()
+        actual_kcal = today_kcal.actual_kcal if today_kcal else 0
+        kcal_completed = (actual_kcal >= target_kcal and target_kcal > 0)
+
+        # Goal Crusher completed ONLY if both diet plan and kcal logs are completed
+        goal_crusher_completed = (diet_completed and kcal_completed)
+
         # Evaluate achievement milestones
         milestone_definitions = [
             {
@@ -757,14 +857,14 @@ class ClientCheckInView(generics.GenericAPIView):
                 "name": "Hydration Hero",
                 "emoji": "💧",
                 "description": "Reached your daily target water intake!",
-                "condition": ClientHydrationLog.objects.filter(client=client, actual_cups__gte=6).exists(),
+                "condition": hydration_goal_completed,
             },
             {
                 "key": "goal_crusher",
                 "name": "Goal Crusher",
                 "emoji": "🎯",
-                "description": "Hit your target calories burned for the day!",
-                "condition": ClientKcalLog.objects.filter(client=client, actual_kcal__gte=500).exists(),
+                "description": "Completed daily diet plan & hit calorie target!",
+                "condition": goal_crusher_completed,
             },
             {
                 "key": "workout_ready",
@@ -802,6 +902,10 @@ class ClientCheckInView(generics.GenericAPIView):
                         "emoji": m["emoji"],
                         "description": m["description"],
                     })
+            else:
+                # If daily goal badge is not completed today, remove any stale achievement record
+                if m["key"] in ("hydration_hero", "goal_crusher"):
+                    ClientAchievement.objects.filter(client=client, badge_key=m["key"]).delete()
 
         # All badges list
         earned_keys = set(ClientAchievement.objects.filter(client=client).values_list('badge_key', flat=True))
@@ -976,4 +1080,197 @@ class ClientToggleMealView(generics.GenericAPIView):
             "done": new_state,
             "date": today.isoformat(),
         })
+
+
+class ClientNotificationsView(generics.GenericAPIView):
+    """
+    Returns real, live notifications for authenticated client:
+    - Today's workout routine (or rest day)
+    - Nutrition & Diet plan (next pending meal or diet plan completed)
+    - Hydration status (today's cups vs target)
+    - Streak milestone / consistency status
+    - Assigned coach information
+    - Recently unlocked badges
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if not hasattr(user, 'client_profile'):
+            return Response({"notifications": []})
+
+        client = user.client_profile
+        today = timezone.localdate()
+        today_weekday = today.weekday()
+        notifications = []
+
+        # 1. Today's Workout Routine
+        today_workouts = list(ClientWorkoutPlan.objects.filter(
+            client=client,
+            day_of_week=today_weekday,
+            is_active=True
+        ).select_related('exercise', 'master_plan'))
+
+        if today_workouts:
+            ex_names = [w.exercise.title for w in today_workouts[:2]]
+            more_count = len(today_workouts) - len(ex_names)
+            ex_summary = ", ".join(ex_names)
+            if more_count > 0:
+                ex_summary += f" +{more_count} more"
+            plan_name = today_workouts[0].master_plan.title if today_workouts[0].master_plan else "Daily Training"
+            notifications.append({
+                "id": "workout_today",
+                "icon": "💪",
+                "title": f"Today's Routine: {plan_name}",
+                "body": f"{len(today_workouts)} exercise{'s' if len(today_workouts) > 1 else ''} scheduled ({ex_summary}). Let's get moving!",
+                "time": "Today",
+                "color": "0xFF2C4BFF",
+            })
+        else:
+            has_any_workout = ClientWorkoutPlan.objects.filter(client=client, is_active=True).exists()
+            if has_any_workout:
+                notifications.append({
+                    "id": "workout_rest",
+                    "icon": "🧘",
+                    "title": "Rest & Recovery Day",
+                    "body": "No workout exercises scheduled for today. Rest up, stretch, and hydrate!",
+                    "time": "Today",
+                    "color": "0xFF00C9FF",
+                })
+            else:
+                notifications.append({
+                    "id": "workout_none",
+                    "icon": "💪",
+                    "title": "Workout Routine",
+                    "body": "Your trainer has not assigned an active workout plan yet. Check back soon!",
+                    "time": "Today",
+                    "color": "0xFF2C4BFF",
+                })
+
+        # 2. Nutrition & Diet Plan
+        active_diet = ClientDietPlan.objects.filter(client=client, is_active=True).first()
+        if active_diet:
+            diet_meals = list(active_diet.meals.all())
+            if diet_meals:
+                completed_ids = set(ClientMealLog.objects.filter(
+                    client=client,
+                    meal_item__in=diet_meals,
+                    date=today,
+                    is_completed=True
+                ).values_list('meal_item_id', flat=True))
+                pending_meals = [m for m in diet_meals if m.id not in completed_ids]
+
+                if pending_meals:
+                    next_meal = pending_meals[0]
+                    notifications.append({
+                        "id": f"meal_{next_meal.id}",
+                        "icon": next_meal.emoji or "🥗",
+                        "title": f"Meal Reminder: {next_meal.name}",
+                        "body": f"{next_meal.get_meal_type_display()} · {next_meal.calories} kcal ({len(pending_meals)} pending meal{'s' if len(pending_meals) > 1 else ''} today).",
+                        "time": next_meal.time_label or "Upcoming",
+                        "color": "0xFF00E5A0",
+                    })
+                else:
+                    notifications.append({
+                        "id": "diet_complete",
+                        "icon": "🥗",
+                        "title": "Diet Plan Completed! 🌟",
+                        "body": f"All {len(diet_meals)} meals logged today. Total: {active_diet.daily_calorie_target} kcal. Keep it up!",
+                        "time": "Today",
+                        "color": "0xFF00E5A0",
+                    })
+            else:
+                notifications.append({
+                    "id": "diet_plan_active",
+                    "icon": "🥗",
+                    "title": f"Diet Plan: {active_diet.title}",
+                    "body": f"Daily target: {active_diet.daily_calorie_target} kcal, {active_diet.protein_grams}g protein.",
+                    "time": "Active",
+                    "color": "0xFF00E5A0",
+                })
+        else:
+            notifications.append({
+                "id": "diet_none",
+                "icon": "🥗",
+                "title": "Nutrition Tracker",
+                "body": "No active diet plan assigned yet. Ask your coach to create a personalized meal plan.",
+                "time": "Today",
+                "color": "0xFF00E5A0",
+            })
+
+        # Daily 12:00 PM Diet Goals Reminder
+        notifications.append({
+            "id": "daily_diet_reminder_12pm",
+            "icon": "🥗",
+            "title": "Daily Diet Reminder",
+            "body": "Do not forget to complete your daily fitness diet goals!",
+            "time": "12:00 PM Daily",
+            "color": "0xFF00E5A0",
+        })
+
+        # 3. Hydration Progress
+        hyd_target_obj = DailyHydrationTarget.objects.filter(client=client, day_of_week=today_weekday).first()
+        target_cups = hyd_target_obj.target_cups if hyd_target_obj else 8
+        today_hyd = ClientHydrationLog.objects.filter(client=client, date=today).first()
+        actual_cups = today_hyd.actual_cups if today_hyd else 0
+
+        if actual_cups >= target_cups and target_cups > 0:
+            notifications.append({
+                "id": "hyd_complete",
+                "icon": "💧",
+                "title": "Hydration Goal Completed! 💧",
+                "body": f"Great job! You reached {actual_cups}/{target_cups} cups today. Hydration Hero unlocked!",
+                "time": "Goal Met",
+                "color": "0xFF00C9FF",
+            })
+        else:
+            pct = int((actual_cups / target_cups * 100)) if target_cups > 0 else 0
+            notifications.append({
+                "id": "hyd_progress",
+                "icon": "💧",
+                "title": "Daily Water Intake 💧",
+                "body": f"{actual_cups} / {target_cups} cups logged today ({pct}%). Drink water throughout the day!",
+                "time": "Today",
+                "color": "0xFF00C9FF",
+            })
+
+        # 4. Streak & Consistency
+        streak = ClientStreak.objects.filter(client=client).first()
+        if streak:
+            notifications.append({
+                "id": "streak_status",
+                "icon": "🔥",
+                "title": f"Day {streak.current_streak} Active Streak!",
+                "body": f"Keep going strong! Your personal best is {streak.longest_streak} consecutive active days.",
+                "time": "Active",
+                "color": "0xFFFF6B35",
+            })
+
+        # 5. Coach / Assigned Trainer
+        active_link = client.trainer_links.filter(is_active=True).select_related('trainer__user').first()
+        if active_link and active_link.trainer:
+            coach_user = active_link.trainer.user
+            coach_name = coach_user.get_full_name() or coach_user.username or coach_user.email
+            notifications.append({
+                "id": "coach_info",
+                "icon": "👨‍🏫",
+                "title": f"Coach: {coach_name}",
+                "body": f"{coach_name} is actively monitoring your workouts and nutrition routines.",
+                "time": "Connected",
+                "color": "0xFF9C7BFF",
+            })
+
+        # 6. Unlocked Achievements
+        recent_achs = list(ClientAchievement.objects.filter(client=client).order_by('-unlocked_at')[:2])
+        for ach in recent_achs:
+            notifications.append({
+                "id": f"ach_{ach.id}",
+                "icon": ach.emoji,
+                "title": f"Badge: {ach.name}",
+                "body": ach.description,
+                "time": ach.unlocked_at.strftime("%b %d") if ach.unlocked_at else "Earned",
+                "color": "0xFFFFD700",
+            })
+
+        return Response({"notifications": notifications})
 

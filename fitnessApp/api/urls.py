@@ -57,4 +57,7 @@ urlpatterns = [
     path('diet-plans/<int:pk>/', DietPlanDetailView.as_view(), name='diet-plan-detail'),
     path('my-diet-plan/', ClientMyDietPlanView.as_view(), name='my-diet-plan'),
     path('my-diet-plan/meals/<int:pk>/toggle/', ClientToggleMealView.as_view(), name='my-diet-meal-toggle'),
+
+    # Real-time Client Notifications
+    path('client-notifications/', ClientNotificationsView.as_view(), name='client-notifications'),
 ]
