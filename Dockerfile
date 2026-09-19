@@ -30,5 +30,5 @@ EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Run Gunicorn with 4 workers to fully leverage multi-core CPU power
-CMD ["gunicorn", "fitness.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--timeout", "120"]
+# Run Gunicorn with 4 workers and auto-recycling to prevent hung connections or leaks
+CMD ["gunicorn", "fitness.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--timeout", "30", "--max-requests", "1000", "--max-requests-jitter", "100"]
