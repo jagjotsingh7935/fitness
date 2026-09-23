@@ -11,7 +11,14 @@ def range_media_serve(request, path):
     Essential for mobile video streaming (ExoPlayer on Android, AVPlayer on iOS),
     allowing seeking, partial buffering, and fast reading of MP4 moov metadata.
     """
-    unquoted_path = urllib.parse.unquote(path)
+    # Unquote repeatedly until stable (handles raw, %20, and %2520 double-encoded URLs)
+    unquoted_path = path
+    for _ in range(3):
+        new_unquoted = urllib.parse.unquote(unquoted_path)
+        if new_unquoted == unquoted_path:
+            break
+        unquoted_path = new_unquoted
+
     normalized_media_root = os.path.abspath(settings.MEDIA_ROOT)
     full_path = os.path.abspath(os.path.join(normalized_media_root, unquoted_path))
 
