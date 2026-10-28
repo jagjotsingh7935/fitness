@@ -19,6 +19,33 @@ from .permissions import AdminOnlyPermission, CustomModelPermissions
 User = get_user_model()
 
 
+@transaction.atomic
+def delete_user_account(user):
+    """Permanently delete a user row together with everything that belongs to it."""
+    email = user.email
+    client_profile = getattr(user, 'client_profile', None)
+    bmi_id = client_profile.bmi_id if client_profile else None
+    fat_percent_id = client_profile.fat_percent_id if client_profile else None
+
+    # Cascades to the role profile (client / trainer) and all records owned by it
+    user.delete()
+
+    # BMI / FatPercent are referenced from the client profile, so they are not cascaded
+    if bmi_id:
+        BMI.objects.filter(pk=bmi_id).delete()
+    if fat_percent_id:
+        FatPercent.objects.filter(pk=fat_percent_id).delete()
+    if email:
+        EmailOTP.objects.filter(email=email).delete()
+
+
+class DeleteUserWithProfileMixin:
+    """Deleting a client / trainer profile also deletes the User row it belongs to."""
+
+    def perform_destroy(self, instance):
+        delete_user_account(instance.user)
+
+
 # Pagination Class
 class UserListPagination(PageNumberPagination):
     page_size = 10
@@ -150,22 +177,7 @@ class CurrentUserView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        email = user.email
-        profile = user.client_profile
-        bmi_id = profile.bmi_id
-        fat_percent_id = profile.fat_percent_id
-
-        with transaction.atomic():
-            # Cascades to ClientProfile and all client-owned records (plans, logs, links, ...)
-            user.delete()
-            # BMI / FatPercent are referenced from the profile, so they are not cascaded
-            if bmi_id:
-                BMI.objects.filter(pk=bmi_id).delete()
-            if fat_percent_id:
-                FatPercent.objects.filter(pk=fat_percent_id).delete()
-            if email:
-                EmailOTP.objects.filter(email=email).delete()
-
+        delete_user_account(user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -258,7 +270,7 @@ class TrainerSignUpView(generics.CreateAPIView):
         return trainer
 
 
-class TrainerDetailView(generics.RetrieveUpdateDestroyAPIView):
+class TrainerDetailView(DeleteUserWithProfileMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = TrainerProfile.objects.all()
     serializer_class = TrainerDetailSerializer
     permission_classes = [CustomModelPermissions]
@@ -312,7 +324,7 @@ class ClientSignUpView(generics.CreateAPIView):
         return client
 
 
-class ClientDetailView(generics.RetrieveUpdateDestroyAPIView):
+class ClientDetailView(DeleteUserWithProfileMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = ClientProfile.objects.all()
     serializer_class = ClientDetailSerializer
     permission_classes = [CustomModelPermissions]
@@ -380,7 +392,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class TrainerProfileViewSet(viewsets.ModelViewSet):
+class TrainerProfileViewSet(DeleteUserWithProfileMixin, viewsets.ModelViewSet):
     queryset = TrainerProfile.objects.all()
     serializer_class = TrainerSerializer
     permission_classes = [CustomModelPermissions]
@@ -405,7 +417,7 @@ class TrainerProfileViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class ClientProfileViewSet(viewsets.ModelViewSet):
+class ClientProfileViewSet(DeleteUserWithProfileMixin, viewsets.ModelViewSet):
     queryset = ClientProfile.objects.all()
     serializer_class = ClientSerializer
     permission_classes = [CustomModelPermissions]
