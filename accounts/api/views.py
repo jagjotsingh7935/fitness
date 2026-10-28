@@ -12,7 +12,7 @@ from django.db import transaction
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action
 
-from accounts.models import Category, TrainerProfile, ClientProfile, TrainerClientLink, Role, EmailOTP
+from accounts.models import Category, TrainerProfile, ClientProfile, TrainerClientLink, Role, EmailOTP, BMI, FatPercent
 from accounts.api.serializers import *
 from .permissions import AdminOnlyPermission, CustomModelPermissions
 
@@ -140,6 +140,33 @@ class CurrentUserView(APIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        """Permanently delete the authenticated client's account and all of its data."""
+        user = request.user
+        if not user.is_client or not hasattr(user, 'client_profile'):
+            return Response(
+                {"detail": "Only client accounts can be deleted from the app."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        email = user.email
+        profile = user.client_profile
+        bmi_id = profile.bmi_id
+        fat_percent_id = profile.fat_percent_id
+
+        with transaction.atomic():
+            # Cascades to ClientProfile and all client-owned records (plans, logs, links, ...)
+            user.delete()
+            # BMI / FatPercent are referenced from the profile, so they are not cascaded
+            if bmi_id:
+                BMI.objects.filter(pk=bmi_id).delete()
+            if fat_percent_id:
+                FatPercent.objects.filter(pk=fat_percent_id).delete()
+            if email:
+                EmailOTP.objects.filter(email=email).delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
